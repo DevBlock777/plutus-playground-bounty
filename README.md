@@ -1,4 +1,6 @@
-# Plutus Playground 
+Plinth/Plutus Playground 
+
+<img width="542" height="628" alt="image" src="https://github.com/user-attachments/assets/4c54db1b-6fda-48ec-a535-d961e70cd8ff" />
 
 Company: Coxygen Global
 
