@@ -17,7 +17,7 @@ student developers who mostly are new to blockchain, there is a measurable degre
 - migration from propriatory to open source loss of IP, sharing code via github
 - tooling and hosting difficulties: nix, cabal, etc Haskell hosting is not very popular thus expensive
 - deployment environment not as easy as the most popular CMS e.g. wordpress, most cloud services need about $400
-- lack of Ethereum Remix online IDE playground
+- lack of easy to use tools like Online Remix IDE playground Ethereum has.
   
 From this experience, it is clear that an online playground similar to Ethereum Remix is the best option but in order to be language inclusive, it must not only cater for Plutus/Plinth Haskell but for other languages as well. This is the logical next step:- create a studio playground - Plutus Playground because all Cardano Smart Contract 
 development languages compile to UPLC - Untyped Plutus Core.
