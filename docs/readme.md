@@ -793,7 +793,6 @@ create table usage_counters (
 
 <img width="1504" height="773" alt="5  offchain-workspace" src="https://github.com/user-attachments/assets/005382d8-18d4-4141-b910-667eb82d8eff" />
 
-## Resources
 
 [1]: https://plutus.cardano.intersectmbo.org/docs/delve-deeper/languages?utm_source=chatgpt.com "Overview of Languages Compiling to UPLC | Plinth and Plutus Core ..."
 [2]: https://developers.cardano.org/docs/build/smart-contracts/languages/plutarch/overview/?utm_source=chatgpt.com "Plutarch (Haskell) | Cardano Developer Portal"
