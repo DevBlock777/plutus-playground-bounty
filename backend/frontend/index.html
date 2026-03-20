@@ -1,0 +1,512 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Plutus Architect IDE</title>
+
+        <!-- Monaco Editor -->
+        <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.39.0/min/vs/loader.js"></script>
+
+        <!-- Lucid (Cardano) — loaded as ES module, exposed as globals -->
+        <script type="module">
+            import {
+                Lucid,
+                Blockfrost,
+            } from "https://unpkg.com/lucid-cardano@0.10.11/web/mod.js";
+            window.Lucid = Lucid;
+            window.Blockfrost = Blockfrost;
+            window._lucidReady = true;
+            window.dispatchEvent(new Event("lucid-ready"));
+        </script>
+
+        <!-- Fonts -->
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link
+            href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600&family=Syne:wght@400;600;700;800&display=swap"
+            rel="stylesheet"
+        />
+        <!-- Styles -->
+        <link rel="stylesheet" href="ide-styles.css" />
+        <style>
+            /* ── Editor tabs bar (multi-file, Outcome #69791 a.i) ── */
+            .editor-tabs-bar {
+                display: flex;
+                align-items: center;
+                background: #0f0f18;
+                border-bottom: 1px solid #1e1e2e;
+                min-height: 32px;
+                overflow-x: auto;
+                scrollbar-width: thin;
+                flex-shrink: 0;
+            }
+            .editor-tab {
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                padding: 0 14px 0 12px;
+                height: 32px;
+                font-size: 11px;
+                font-family: "JetBrains Mono", monospace;
+                color: #6b7280;
+                border-right: 1px solid #1e1e2e;
+                cursor: pointer;
+                white-space: nowrap;
+                flex-shrink: 0;
+                transition:
+                    background 0.15s,
+                    color 0.15s;
+                user-select: none;
+            }
+            .editor-tab:hover {
+                background: #1a1a28;
+                color: #a0aec0;
+            }
+            .editor-tab.active {
+                background: #1a1a24;
+                color: #e2e8f0;
+                border-bottom: 2px solid #7c3aed;
+            }
+            .editor-tab .tab-icon {
+                font-size: 10px;
+            }
+            .editor-tab .tab-close {
+                font-size: 13px;
+                color: #4a5568;
+                padding: 0 2px;
+                border-radius: 3px;
+                line-height: 1;
+            }
+            .editor-tab .tab-close:hover {
+                background: #3a3a5c;
+                color: #e2e8f0;
+            }
+            .editor-zone {
+                display: flex;
+                flex-direction: column;
+                overflow: hidden;
+            }
+            #editor {
+                flex: 1;
+                min-height: 0;
+            }
+        </style>
+    </head>
+    <body>
+        <!-- ── Toast container ── -->
+        <div id="toastContainer"></div>
+
+        <!-- ── New file / folder modal ── -->
+        <div id="modalOverlay" class="modal-overlay">
+            <div class="modal">
+                <h3 id="modalTitle">+ New item</h3>
+                <div class="modal-toggle">
+                    <button
+                        id="toggleFile"
+                        class="tog active"
+                        onclick="setModalType('file')"
+                    >
+                        📄 File
+                    </button>
+                    <button
+                        id="toggleFolder"
+                        class="tog"
+                        onclick="setModalType('folder')"
+                    >
+                        📁 Folder
+                    </button>
+                </div>
+                <div>
+                    <label>Location</label>
+                    <select id="modalDir"></select>
+                </div>
+                <div>
+                    <label id="modalNameLabel">File name</label>
+                    <input
+                        id="modalName"
+                        type="text"
+                        placeholder="ex: MyValidator.hs"
+                    />
+                    <p class="modal-hint" id="modalHint">
+                        Must start with uppercase, end with .hs
+                    </p>
+                </div>
+                <div class="modal-actions">
+                    <button class="cancel" onclick="closeModal()">
+                        Cancel
+                    </button>
+                    <button
+                        class="confirm"
+                        id="modalConfirmBtn"
+                        onclick="confirmCreate()"
+                    >
+                        Create
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ── Confirm delete modal ── -->
+        <div id="deleteOverlay" class="modal-overlay">
+            <div class="modal">
+                <h3 style="color: #f87171">🗑 Delete</h3>
+                <p
+                    id="deleteMsg"
+                    style="font-size: 13px; color: #9ca3af; margin: 8px 0 16px"
+                ></p>
+                <div class="modal-actions">
+                    <button class="cancel" onclick="closeDeleteModal()">
+                        Cancel
+                    </button>
+                    <button
+                        class="confirm"
+                        id="deleteConfirmBtn"
+                        style="background: #7f1d1d"
+                        onclick="confirmDelete()"
+                    >
+                        Delete
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════════════════
+     MAIN LAYOUT  (3-column grid + terminal bottom row)
+══════════════════════════════════════════════════════ -->
+        <div class="layout">
+            <!-- Sidebar icon strip (Remix IDE style) -->
+            <div class="sidebar-icons-strip">
+                <div class="sidebar-strip-icon active" title="Explorer">
+                    &#128193;
+                </div>
+            </div>
+
+            <!-- ── Toolbar ── -->
+            <div class="toolbar">
+                <span class="logo-small">⬡</span>
+                <button id="connectWalletBtn" onclick="handleWalletBtn()">
+                    ⬡ Connect Wallet
+                </button>
+                <div class="sep"></div>
+                <select id="templateSelect" title="Load a template">
+                    <option value="">📄 Templates…</option>
+                </select>
+                <div class="sep"></div>
+                <input
+                    id="validatorNameInput"
+                    type="text"
+                    placeholder="validator name…"
+                    title="Name of your validator function (BuiltinData -> BuiltinData -> BuiltinData -> ())"
+                />
+                <button id="runFileBtn" class="run-file" disabled>
+                    ▶ Compile
+                </button>
+                <button
+                    id="downloadBtn"
+                    class="sec"
+                    disabled
+                    title="Download .plutus artifact"
+                >
+                    ⬇ .plutus
+                </button>
+                <div class="sep"></div>
+                <button id="saveBtn" class="sec">💾 Save</button>
+                <button id="newFileBtn" class="sec">＋ New</button>
+                <div class="sep"></div>
+                <span id="statusEl"></span>
+                <span id="activeFile"></span>
+                <!-- Job ID badge — shown after compilation starts -->
+                <span
+                    id="jobIdBadge"
+                    title="Click to view job status"
+                    style="
+                        display: none;
+                        cursor: pointer;
+                        font-size: 10px;
+                        background: #1e1e30;
+                        border: 1px solid #3a3a5c;
+                        border-radius: 4px;
+                        padding: 2px 6px;
+                        color: #7c3aed;
+                        font-family: &quot;JetBrains Mono&quot;, monospace;
+                    "
+                    onclick="openJobStatus(this.dataset.jobId)"
+                ></span>
+                <div class="spacer"></div>
+                <span
+                    id="versionBadge"
+                    title="Toolchain versions"
+                    onclick="showVersions()"
+                    >GHC…</span
+                >
+                <div class="sep"></div>
+                <div class="user-badge">
+                    <div class="user-avatar" id="userAvatar">?</div>
+                    <span id="userLabel">Loading...</span>
+                    <button class="logout-btn" onclick="logout()">
+                        ⏻ Logout
+                    </button>
+                </div>
+            </div>
+
+            <!-- ── Sidebar ── -->
+            <div class="sidebar">
+                <!-- Language tabs -->
+                <div class="lang-tabs">
+                    <button class="lang-btn active" data-lang="plutus" onclick="setLanguage('plutus')" title="Haskell / PlutusTx">
+                        λ Plutus
+                    </button>
+                    <button class="lang-btn" data-lang="aiken" onclick="setLanguage('aiken')" title="Aiken smart contracts">
+                        🔷 Aiken
+                    </button>
+                </div>
+
+                <!-- PLUTUS panel -->
+                <div id="plutusSidebarPanel">
+                    <div class="sidebar-header" id="sidebarHeader">
+                        Workspace
+                        <span>
+                            <button class="ico-btn" onclick="openModal('file')"   title="New .hs file">📄</button>
+                            <button class="ico-btn" onclick="openModal('folder')" title="New folder">📁</button>
+                            <button class="ico-btn" onclick="refreshFiles()"      title="Refresh">↻</button>
+                        </span>
+                    </div>
+                    <div class="sidebar-content" id="sidebarContent">
+                        <div id="sidebarPath" class="sidebar-path">~</div>
+                        <div id="fileList" class="file-list">
+                            <div style="padding: 12px; font-size: 11px; color: #444">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- AIKEN panel -->
+                <div id="aikenSidebarPanel" style="display:none">
+                    <div class="sidebar-header">
+                        Aiken Workspace
+                        <span>
+                            <button class="ico-btn" onclick="openAikenNewFileModal()" title="New .ak file">🔷</button>
+                            <button class="ico-btn" onclick="refreshAikenFiles()"    title="Refresh">↻</button>
+                        </span>
+                    </div>
+                    <div class="sidebar-content">
+                        <div id="aikenSidebarPath" class="sidebar-path">~ [aiken]</div>
+                        <div id="aikenFileList" class="file-list">
+                            <div style="padding: 12px; font-size: 11px; color: #444">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Editor ── -->
+            <div class="editor-zone">
+                <!-- Multi-file editor tabs bar (Outcome #69791 a.i gap) -->
+                <div id="editorTabsBar" class="editor-tabs-bar"></div>
+                <div id="editor"></div>
+            </div>
+
+            <!-- ── Output panels (tabbed, right column) ── -->
+            <div class="panels-zone">
+                <div class="panels-tabs">
+                    <div
+                        class="ptab active"
+                        data-tab="logs"
+                        onclick="switchTab('logs')"
+                    >
+                        <span class="tab-dot"></span>GHC
+                    </div>
+                    <div class="ptab" data-tab="std" onclick="switchTab('std')">
+                        <span class="tab-dot"></span>Output
+                    </div>
+                    <div
+                        class="ptab"
+                        data-tab="cbor"
+                        onclick="switchTab('cbor')"
+                    >
+                        <span class="tab-dot"></span>CBOR
+                    </div>
+                    <div
+                        class="ptab"
+                        data-tab="addr"
+                        onclick="switchTab('addr')"
+                    >
+                        <span class="tab-dot"></span>Addresses
+                    </div>
+                    <div
+                        class="ptab"
+                        data-tab="ai"
+                        onclick="switchTab('ai')"
+                        title="Assistant IA Plutus/Haskell"
+                    >
+                        <span class="tab-dot"></span>✦ AI
+                    </div>
+                </div>
+
+                <div class="panel-body active" id="tab-logs">
+                    <div
+                        id="logs"
+                        class="panel-content comp-log copyable"
+                        onclick="copyPanel('logs')"
+                        title="Click to copy"
+                        style="position: relative"
+                    ></div>
+                </div>
+                <div class="panel-body" id="tab-std">
+                    <div
+                        id="std"
+                        class="panel-content std-log copyable"
+                        onclick="copyPanel('std')"
+                        title="Click to copy"
+                        style="position: relative"
+                    ></div>
+                </div>
+                <div class="panel-body" id="tab-cbor">
+                    <div
+                        id="cbor"
+                        class="panel-content cbor-log copyable"
+                        onclick="copyPanel('cbor')"
+                        title="Click to copy"
+                        style="position: relative"
+                    ></div>
+                </div>
+                <div class="panel-body" id="tab-addr">
+                    <div class="addr-body">
+                        <div class="addr-block">
+                            <div class="addr-label">Validator address</div>
+                            <div
+                                id="validatorAddr"
+                                class="addr-value validator empty"
+                                onclick="copyAddr('validatorAddr')"
+                                title="Click to copy"
+                            >
+                                — compile to generate —
+                            </div>
+                        </div>
+                        <div class="addr-block">
+                            <div class="addr-label">Wallet address</div>
+                            <div
+                                id="walletAddr"
+                                class="addr-value wallet empty"
+                                onclick="copyAddr('walletAddr')"
+                                title="Connect wallet first"
+                            >
+                                — wallet not connected —
+                            </div>
+                        </div>
+                        <div class="copy-ok" id="copyOk"></div>
+                    </div>
+                </div>
+                <div class="panel-body" id="tab-ai">
+                    <div class="ai-chat-container">
+                        <div class="ai-header">
+                            <div class="ai-header-icon">◈</div>
+                            <div class="ai-header-text">
+                                <div class="ai-header-title">
+                                    Plutus AI Assistant
+                                </div>
+                                <div class="ai-header-sub">
+                                    Haskell · Smart Contracts · Plutus
+                                </div>
+                            </div>
+                            <span class="ai-model-badge" id="aiModelBadge"
+                                >qwen2.5-coder</span
+                            >
+                        </div>
+                        <div id="ai-messages" class="ai-messages">
+                            <div class="ai-empty">
+                                <div class="ai-empty-icon">◈</div>
+                                <div>
+                                    Ask anything about your<br />Haskell /
+                                    Plutus code
+                                </div>
+                            </div>
+                        </div>
+                        <div class="ai-input-container">
+                            <textarea
+                                id="ai-input"
+                                class="ai-input"
+                                placeholder="Ask a question or describe what you want to build…"
+                                rows="2"
+                            ></textarea>
+                            <button
+                                id="ai-send-btn"
+                                class="ai-send-btn"
+                                onclick="sendAIMessage()"
+                                title="Send (Enter)"
+                            >
+                                ➤
+                            </button>
+                        </div>
+                        <div class="ai-actions">
+                            <button
+                                onclick="askAboutCode()"
+                                class="ai-action-btn"
+                            >
+                                🔍 Analyse code
+                            </button>
+                            <button
+                                onclick="generatePlutusContract()"
+                                class="ai-action-btn"
+                            >
+                                📝 Plutus contract
+                            </button>
+                            <button
+                                onclick="generateHaskellFunction()"
+                                class="ai-action-btn"
+                            >
+                                ⚡ Haskell function
+                            </button>
+                            <button
+                                onclick="askForHelp()"
+                                class="ai-action-btn"
+                            >
+                                ❓ Help
+                            </button>
+                            <button
+                                onclick="clearAIChat()"
+                                class="ai-action-btn clear"
+                            >
+                                🗑 Clear
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ── Terminal (full-width bottom row) ── -->
+            <div class="terminal-zone">
+                <div class="terminal-topbar">
+                    <span class="t-title"
+                        ><span class="term-dot"></span>Terminal</span
+                    >
+                    <span class="t-hint"
+                        >compile &lt;path.hs&gt; · compile &lt;validator&gt;
+                        &lt;path.hs&gt; · help · ↑↓ history · Tab
+                        autocomplete</span
+                    >
+                    <button class="t-clear-btn" onclick="termClear()">
+                        ⌫ clear
+                    </button>
+                </div>
+                <div class="terminal-output" id="termOutput"></div>
+                <div class="terminal-input-row">
+                    <span class="terminal-prompt">plutus ❯</span>
+                    <input
+                        id="termInput"
+                        class="terminal-input"
+                        type="text"
+                        placeholder="type 'help' for commands…"
+                        autocomplete="off"
+                        spellcheck="false"
+                    />
+                </div>
+            </div>
+        </div>
+        <!-- /.layout -->
+
+        <!-- ── JS Modules (order matters) ── -->
+        <script src="ide-core.js"></script>
+        <script src="ide-workspace.js"></script>
+        <script src="ide-compile.js"></script>
+        <script src="ide-terminal.js"></script>
+        <script src="ide-aiken.js"></script>
+    </body>
+</html>

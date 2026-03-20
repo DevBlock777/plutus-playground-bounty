@@ -1,0 +1,44 @@
+FROM ubuntu:22.04
+
+# 1) Dépendances système de base
+RUN apt-get update && apt-get install -y \
+      curl git build-essential xz-utils ca-certificates \
+      libgmp-dev pkg-config locales \
+  && rm -rf /var/lib/apt/lists/* \
+  && locale-gen en_US.UTF-8
+
+ENV LANG=en_US.UTF-8
+ENV LC_ALL=en_US.UTF-8
+
+# 2) Installer Nix en mode single-user (adapté aux containers)
+ENV USER=root
+ENV NIX_CONFIG="experimental-features = nix-command flakes"
+
+RUN curl -L https://nixos.org/nix/install | sh -s -- --no-daemon
+
+# Utiliser bash comme shell par défaut
+SHELL ["/bin/bash", "-lc"]
+
+WORKDIR /app
+
+# 3) Copier tout le repo dans l'image
+#    (si tu veux optimiser le cache plus tard, on pourra séparer les COPY)
+COPY . .
+
+# 4) Warm Nix : vérifier que nix develop marche
+RUN source /root/.nix-profile/etc/profile.d/nix.sh && \
+    nix --version && \
+    nix develop . --command echo "Nix dev shell OK"
+
+# 5) Warm Cabal : mettre à jour l'index et compiler le projet
+RUN source /root/.nix-profile/etc/profile.d/nix.sh && \
+    nix develop . --command bash -lc "cabal update && cabal build all"
+
+# 6) Le serveur Playground écoutera sur ce port (à adapter si besoin)
+EXPOSE 8080
+
+# 7) Commande de démarrage du conteneur
+#    IMPORTANT : adapte 'plutus-playground-server --port 8080'
+#    à la commande que tu utilises en local pour lancer ton Playground.
+CMD source /root/.nix-profile/etc/profile.d/nix.sh && \
+    nix develop . --command plutus-playground-server --port 8080

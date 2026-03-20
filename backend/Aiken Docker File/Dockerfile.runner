@@ -1,0 +1,23 @@
+FROM ubuntu:22.04
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && apt-get install -y \
+    curl \
+    git \
+    sudo \
+    build-essential \
+    xz-utils \
+    ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
+
+# Installer aiken via aikup et exposer le binaire
+ENV USER=root
+ENV PATH="/root/.aiken/bin:${PATH}"
+
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://install.aiken-lang.org | sh \
+ && /root/.aiken/bin/aikup
+
+WORKDIR /app
+
+CMD ["/bin/bash"]
